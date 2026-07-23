@@ -4,6 +4,7 @@
 #include <signal.h>
 /* unix only */
 #include <stdlib.h>
+#include <termios.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/time.h>
@@ -30,6 +31,12 @@ enum {
     R_COUNT
 };
 
+// Memory mapped registers
+enum {
+    MR_KBSR = 0xFE00, /* keyboard status */
+    MR_KBDR = 0xFE02  /* keyboard data */
+};
+
 // Trap codes
 enum {
     TRAP_GETC = 0x20,  /* get character from keyboard, not echoed onto the terminal */
@@ -41,6 +48,12 @@ enum {
 };
 
 uint16_t reg[R_COUNT];
+
+struct termios original_tio;
+
+void disable_input_buffering() {
+    tcgetattr(STDIN_FILENO, &original_tio);
+}
 
 // Opcodes
 enum {
@@ -113,6 +126,22 @@ int read_image(const char* image_path) {
     read_image_file(file);
     fclose(file);
     return 1;
+}
+
+void mem_write(uint16_t address, uint16_t val) {
+    memory[address] = val;
+}
+
+uint16_t mem_read(uint16_t address) {
+    if (address == MR_KBSR) {
+        if (check_key()) {
+            memory[MR_KBSR] = (1 << 15);
+            memory[MR_KBDR] = getchar();
+        } else {
+            memory[MR_KBSR] = 0;
+        }
+    }
+    return memory[address];
 }
 
 int main(int argc, const char* argv[]) {
