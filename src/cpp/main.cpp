@@ -1,56 +1,34 @@
 #include <iostream>
-#include <termios.h>
-#include <unistd.h>
-#include <signal.h>
-#include <sys/select.h>
 #include "LC3.hpp"
-
-struct termios original_tio;
-
-void disable_input_buffering() {
-    tcgetattr(STDIN_FILENO, &original_tio);
-    struct termios new_tio = original_tio;
-    new_tio.c_lflag &= ~ICANON & ~ECHO;
-    tcsetattr(STDIN_FILENO, TCSANOW, &new_tio);
-}
-
-void restore_input_buffering() {
-    tcsetattr(STDIN_FILENO, TCSANOW, &original_tio);
-}
-
-void handle_interrupt(int signal) {
-    restore_input_buffering();
-    std::cout << "\n";
-    exit(-2);
-}
-
-bool check_key() {
-    fd_set readfds;
-    FD_ZERO(&readfds);
-    FD_SET(STDIN_FILENO, &readfds);
-
-    struct timeval timeout;
-    timeout.tv_sec = 0;
-    timeout.tv_usec = 0;
-
-    return select(STDIN_FILENO + 1, &readfds, NULL, NULL, &timeout) != 0;
-}
+#include "Terminal.hpp"
 
 int main(int argc, char** argv) {
-    signal(SIGINT, handle_interrupt);
-    disable_input_buffering();
+    if (argc < 2) {
+        std::cerr << "Usage: lc3_cpp <image-file1.obj> [image-file2.obj ...]\n";
+        return 1;
+    }
 
-    LC3 vm;
-    if (argc > 1) {
-        if (vm.load_program(argv[1])) {
-            vm.run();
-        } else {
-            std::cerr << "Failed to load image: " << argv[1] << std::endl;
+    // RAII Terminal guard handles raw mode setup, teardown, and signals automatically
+    lc3::Terminal terminal;
+
+    // Configure LC3 with Terminal I/O functions
+    lc3::IOHandler io_handler{
+        lc3::Terminal::check_key,
+        lc3::Terminal::read_char,
+        lc3::Terminal::write_char
+    };
+
+    lc3::LC3 vm(io_handler);
+
+    // Load each image file passed on command line
+    for (int i = 1; i < argc; ++i) {
+        if (!vm.load_program(argv[i])) {
+            std::cerr << "Failed to load image: " << argv[i] << std::endl;
+            return 1;
         }
     }
 
-    restore_input_buffering();
+    vm.run();
+
     return 0;
 }
-
-
